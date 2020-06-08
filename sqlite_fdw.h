@@ -40,6 +40,34 @@
 
 #define CR_NO_ERROR 0
 
+#if (PG_VERSION_NUM < 100000)
+/*
+ * Is the given relation a simple relation i.e a base or "other" member
+ * relation?
+ */
+#define IS_SIMPLE_REL(rel) \
+	((rel)->reloptkind == RELOPT_BASEREL || \
+	 (rel)->reloptkind == RELOPT_OTHER_MEMBER_REL)
+
+/* Is the given relation a join relation? */
+#define IS_JOIN_REL(rel)	\
+	((rel)->reloptkind == RELOPT_JOINREL)
+
+#define IS_UPPER_REL(rel)	\
+	((rel)->reloptkind == RELOPT_UPPER_REL)
+
+/* Struct for extra information passed to estimate_path_cost_size() */
+typedef struct
+{
+	PathTarget *target;
+	bool		has_final_sort;
+	bool		has_limit;
+	double		limit_tuples;
+	int64		count_est;
+	int64		offset_est;
+} SqliteFdwPathExtraData;
+
+#endif
 /*
  * Options structure to store the Sqlite
  * server information
@@ -152,6 +180,13 @@ typedef struct SqliteFdwRelationInfo
 	List	   *grouped_tlist;
 }			SqliteFdwRelationInfo;
 
+/* Callback argument for ec_member_matches_foreign */
+typedef struct
+{
+	Expr	   *current;		/* current expr, or NULL if not yet found */
+	List	   *already_used;	/* expressions already dealt with */
+} ec_member_foreign_arg;
+
 /*
  * This enum describes what's kept in the fdw_private list for a ForeignPath.
  * We store:
@@ -171,7 +206,7 @@ extern bool sqlite_is_foreign_expr(PlannerInfo *root,
 								   RelOptInfo *baserel,
 								   Expr *expr);
 
-
+extern Expr *find_em_expr_for_rel(EquivalenceClass *ec, RelOptInfo *rel);
 extern Expr *find_em_expr_for_input_target(PlannerInfo *root,
 							  EquivalenceClass *ec,
 							  PathTarget *target);
