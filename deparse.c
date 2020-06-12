@@ -2458,8 +2458,12 @@ appendOrderByClause(List *pathkeys, bool has_final_sort, deparse_expr_cxt *conte
 		else
 			appendStringInfoString(buf, " DESC");
 
+		// XXX: In SQLITE3 Release v3.30.0 (2019-10-04) NULL FIRST/LAST is support, but not in prior versions
+		// More info: https://www.sqlite.org/changes.html https://www.sqlite.org/lang_select.html#orderby
+		// To avoid error/problems when using ORDER DESC, we need to explicitly use NULLS LAST at query so pk_nulls_first is never true.
 		if (pathkey->pk_nulls_first)
 			elog(ERROR, "NULLS FIRST not supported");
+
 		delim = ", ";
 	}
 	sqlite_reset_transmission_modes(nestlevel);
