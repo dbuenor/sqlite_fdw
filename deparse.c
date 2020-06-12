@@ -2433,6 +2433,8 @@ appendOrderByClause(List *pathkeys, bool has_final_sort, deparse_expr_cxt *conte
 		PathKey    *pathkey = lfirst(lcell);
 		Expr	   *em_expr;
 
+		// XXX: Not sure why, maybe its postgres version, but with 9.6 find_em_expr_for_input_target its not working, so i disable to avoid problems
+#if (PG_VERSION_NUM >= 120000)
 		if (has_final_sort)
 		{
 			/*
@@ -2444,6 +2446,7 @@ appendOrderByClause(List *pathkeys, bool has_final_sort, deparse_expr_cxt *conte
 													context->foreignrel->reltarget);
 		}
 		else
+#endif
 			em_expr = find_em_expr_for_rel(pathkey->pk_eclass, baserel);
 
 		Assert(em_expr != NULL);

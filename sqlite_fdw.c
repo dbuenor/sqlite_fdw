@@ -425,6 +425,10 @@ sqliteGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid
 	ForeignPath	*path;
 	List		*ppi_list;
 	ListCell	*lc;
+	Cost		startup_cost = 10;
+	Cost		total_cost = baserel->rows + startup_cost;
+	/* Estimate costs */
+	total_cost = baserel->rows;
 
 	elog(DEBUG1, "sqlite_fdw : %s", __func__);
 	/*
@@ -439,9 +443,9 @@ sqliteGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid
 	 */
 	path = create_foreignscan_path(root, baserel,
 								   NULL,	/* default pathtarget */
-								   fpinfo->rows,
-								   fpinfo->startup_cost,
-								   fpinfo->total_cost,
+								   baserel->rows, // fpinfo->rows,
+								   startup_cost, // fpinfo->startup_cost,
+								   total_cost, // fpinfo->total_cost,
 								   NIL, /* no pathkeys */
 								   baserel->lateral_relids,
 								   NULL,	/* no extra plan */
@@ -945,8 +949,8 @@ sqliteGetForeignPlan(
 	SqliteFdwRelationInfo *fpinfo = (SqliteFdwRelationInfo *) foreignrel->fdw_private;
 	Index		scan_relid = foreignrel->relid;
 	List	   *fdw_private;
-	List	   *local_exprs = NULL;
 	List	   *remote_exprs = NULL;
+	List	   *local_exprs = NULL;
 	List	   *params_list = NULL;
 	List	   *fdw_scan_tlist = NIL;
 	List	   *fdw_recheck_quals = NIL;
@@ -1122,8 +1126,9 @@ sqliteGetForeignPlan(
 	 * Build the fdw_private list that will be available to the executor.
 	 * Items in the list must match order in enum FdwScanPrivateIndex.
 	 */
-	fdw_private = list_make2(makeString(sql.data),
-							 retrieved_attrs);
+	fdw_private = list_make3(makeString(sql.data),
+							 retrieved_attrs,
+							 makeInteger(100)); // FIXME: makeInteger(fpinfo->fetch_size)
 	if (IS_JOIN_REL(foreignrel) || IS_UPPER_REL(foreignrel))
 		fdw_private = lappend(fdw_private,
 							  makeString(fpinfo->relation_name));
@@ -2559,7 +2564,6 @@ add_foreign_ordered_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	 */
 	fpinfo->table = ifpinfo->table;
 	fpinfo->server = ifpinfo->server;
-	fpinfo->user = ifpinfo->user;
 
 	fpinfo->shippable_extensions = ifpinfo->shippable_extensions;
 
@@ -3275,8 +3279,7 @@ find_em_expr_for_input_target(PlannerInfo *root,
 
 		/* Ignore non-sort expressions */
 		if (sgref == 0 ||
-			get_sortgroupref_clause_noerr(sgref,
-										  root->parse->sortClause) == NULL)
+			get_sortgroupref_clause_noerr(sgref, root->parse->sortClause) == NULL)
 		{
 			i++;
 			continue;
