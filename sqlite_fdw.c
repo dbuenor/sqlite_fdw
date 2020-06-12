@@ -595,13 +595,12 @@ sqliteGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid
 	foreach(lc, ppi_list)
 	{
 		ParamPathInfo *param_info = (ParamPathInfo *) lfirst(lc);
-		double		rows;
-		int			width;
+		double		rows = baserel->rows;
 		Cost		startup_cost = 10;
 		Cost		total_cost = baserel->rows + startup_cost;
 		total_cost = baserel->rows;
 
-		/* FIXME: Implementa a properCostSize 'calculator'
+		/* FIXME: Implementa a properCostSize 'calculator' */
 
 		/* Get a cost estimate from the remote */
 		/*estimate_path_cost_size(root, baserel,
@@ -870,15 +869,14 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 	/* Create one path for each set of pathkeys we found above. */
 	foreach(lc, useful_pathkeys_list)
 	{
-		double		rows;
-		int			width;
+		double		rows = rel->rows;
 		Cost		startup_cost = 10;
 		Cost		total_cost = rel->rows + startup_cost;
 		total_cost = rel->rows;
 		List	   *useful_pathkeys = lfirst(lc);
 		Path	   *sorted_epq_path;
 
-		/* FIXME: Implementa a properCostSize 'calculator'
+		/* FIXME: Implementa a properCostSize 'calculator' */
 
 		/* Get a cost estimate from the remote */
 		/*
