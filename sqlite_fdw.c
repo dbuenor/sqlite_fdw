@@ -600,15 +600,7 @@ sqliteGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid
 		Cost		total_cost = baserel->rows + startup_cost;
 		total_cost = baserel->rows;
 
-		/* FIXME: Implementa a properCostSize 'calculator' */
-
-		/* Get a cost estimate from the remote */
-		/*estimate_path_cost_size(root, baserel,
-								param_info->ppi_clauses, NIL, NULL,
-								&rows, &width,
-								&startup_cost, &total_cost);
-		*/
-
+		// XXX: We set a fixed cost to 'force' pushdown of filters
 		/*
 		 * ppi_rows currently won't get looked at by anything, but still we
 		 * may as well ensure that it matches our idea of the rowcount.
@@ -876,14 +868,7 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 		List	   *useful_pathkeys = lfirst(lc);
 		Path	   *sorted_epq_path;
 
-		/* FIXME: Implementa a properCostSize 'calculator' */
-
-		/* Get a cost estimate from the remote */
-		/*
-		estimate_path_cost_size(root, rel, NIL, useful_pathkeys, NULL,
-								&rows, &width, &startup_cost, &total_cost);
-		*/
-
+		// XXX: We set a fixed cost to 'force' pushdown of filters
 		/*
 		 * The EPQ path must be at least as well sorted as the path itself, in
 		 * case it gets used as input to a mergejoin.
