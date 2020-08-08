@@ -25,6 +25,7 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
+#include "nodes/execnodes.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/plannodes.h"
 #include "optimizer/clauses.h"
@@ -1659,6 +1660,36 @@ sqlite_deparse_var(Var *node, deparse_expr_cxt *context)
 	}
 }
 
+static char *
+pg_timestamp_convert_to_sqlite(Const *node, char *pg_value)
+{
+	ForeignScanState *fsState = (ForeignScanState *) node;
+	SqliteFdwExecState *festate = (SqliteFdwExecState *) fsState->fdw_state;
+
+	ListCell   *lc = NULL;
+	int			attid = 0;
+	sqlite3_stmt * stmt = festate->stmt;
+	List *retrieved_attrs = festate->retrieved_attrs;
+	char *returnValue = NULL;
+
+	foreach(lc, retrieved_attrs)
+	{
+		int sqlitetype = sqlite3_column_type(stmt, attnum);
+		if (sqlitetype == SQLITE_INTEGER || sqlitetype == SQLITE_FLOAT)
+		{
+			/* Convert to numeric value */
+			returnValue = '1122';
+		}
+		else
+		{
+			/* code */
+			returnValue = pg_value;
+		}
+	}
+
+	return returnValue;
+}
+
 /*
  * Deparse given constant value into context->buf.
  *
@@ -1738,8 +1769,7 @@ sqlite_deparse_const(Const *node, deparse_expr_cxt *context, int showtype)
 			break;
 		case TIMESTAMPOID:
 			extval = OidOutputFunctionCall(typoutput, node->constvalue);
-			ForeignScanState *fsState = (ForeignScanState *) node;
-			SqliteFdwExecState *festate = (SqliteFdwExecState *) fsState->fdw_state;
+			char *valor = pg_timestamp_convert_to_sqlite(node, extval);
 			sqlite_deparse_string_literal(buf, extval);
 		default:
 			extval = OidOutputFunctionCall(typoutput, node->constvalue);
