@@ -1736,6 +1736,11 @@ sqlite_deparse_const(Const *node, deparse_expr_cxt *context, int showtype)
 			extval = OidOutputFunctionCall(typoutput, node->constvalue);
 			appendStringInfo(buf, "X\'%s\'", extval + 2);
 			break;
+		case TIMESTAMPOID:
+			extval = OidOutputFunctionCall(typoutput, node->constvalue);
+			ForeignScanState *fsState = (ForeignScanState *) node;
+			SqliteFdwExecState *festate = (SqliteFdwExecState *) fsState->fdw_state;
+			sqlite_deparse_string_literal(buf, extval);
 		default:
 			extval = OidOutputFunctionCall(typoutput, node->constvalue);
 			sqlite_deparse_string_literal(buf, extval);
