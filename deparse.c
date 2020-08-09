@@ -93,9 +93,9 @@ static bool foreign_expr_walker(Node *node,
 /*
  * Functions to construct string representation of a node tree.
  */
-static void deparseExpr(Expr *expr, deparse_expr_cxt *context);
+static void deparseExpr(Expr *expr, deparse_expr_cxt *context, List **retrieved_attrs);
 static void sqlite_deparse_var(Var *node, deparse_expr_cxt *context);
-static void sqlite_deparse_const(Const *node, deparse_expr_cxt *context, int showtype);
+static void sqlite_deparse_const(Const *node, deparse_expr_cxt *context, int showtype, List **retrieved_attrs);
 static void sqlite_deparse_param(Param *node, deparse_expr_cxt *context);
 static void sqlite_deparse_func_expr(FuncExpr *node, deparse_expr_cxt *context);
 static void sqlite_deparse_op_expr(OpExpr *node, deparse_expr_cxt *context);
@@ -976,7 +976,7 @@ sqliteDeparseSelectStmtForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel
 		quals = remote_conds;
 
 	/* Construct FROM and WHERE clauses */
-	deparseFromExpr(quals, &context);
+	deparseFromExpr(quals, &context, retrieved_attrs);
 
 	if (rel->reloptkind == RELOPT_UPPER_REL)
 	{
@@ -1055,7 +1055,7 @@ sqlite_deparse_select(List *tlist, List **retrieved_attrs, deparse_expr_cxt *con
  * quals is the list of clauses to be included in the WHERE clause.
  */
 static void
-deparseFromExpr(List *quals, deparse_expr_cxt *context)
+deparseFromExpr(List *quals, deparse_expr_cxt *context, List **retrieved_attrs)
 {
 	StringInfo	buf = context->buf;
 	RelOptInfo *foreignrel = context->foreignrel;
@@ -1076,7 +1076,7 @@ deparseFromExpr(List *quals, deparse_expr_cxt *context)
 	if (quals != NIL)
 	{
 		appendStringInfo(buf, " WHERE ");
-		appendConditions(quals, context);
+		appendConditions(quals, context, retrieved_attrs);
 	}
 }
 
@@ -1088,7 +1088,7 @@ deparseFromExpr(List *quals, deparse_expr_cxt *context)
  * deparse WHERE clauses, JOIN .. ON clauses and HAVING clauses.
  */
 static void
-appendConditions(List *exprs, deparse_expr_cxt *context)
+appendConditions(List *exprs, deparse_expr_cxt *context, List **retrieved_attrs)
 {
 	int			nestlevel;
 	ListCell   *lc;
@@ -1111,7 +1111,7 @@ appendConditions(List *exprs, deparse_expr_cxt *context)
 			appendStringInfoString(buf, " AND ");
 
 		appendStringInfoChar(buf, '(');
-		deparseExpr(expr, context);
+		deparseExpr(expr, context, retrieved_attrs);
 		appendStringInfoChar(buf, ')');
 
 		is_first = false;
@@ -1145,7 +1145,7 @@ deparseExplicitTargetList(List *tlist, List **retrieved_attrs,
 
 		if (i > 0)
 			appendStringInfoString(buf, ", ");
-		deparseExpr((Expr *) tle->expr, context);
+		deparseExpr((Expr *) tle->expr, context, NULL);
 
 		*retrieved_attrs = lappend_int(*retrieved_attrs, i + 1);
 		i++;
@@ -1349,7 +1349,7 @@ sqlite_append_where_clause(StringInfo buf,
 			appendStringInfoString(buf, " AND ");
 
 		appendStringInfoChar(buf, '(');
-		deparseExpr(ri->clause, &context);
+		deparseExpr(ri->clause, &context, NULL);
 		appendStringInfoChar(buf, ')');
 
 		is_first = false;
@@ -1472,7 +1472,7 @@ sqlite_deparse_string_literal(StringInfo buf, const char *val)
  * should be self-parenthesized.
  */
 static void
-deparseExpr(Expr *node, deparse_expr_cxt *context)
+deparseExpr(Expr *node, deparse_expr_cxt *context, List **retrieved_attrs)
 {
 	if (node == NULL)
 		return;
@@ -1483,7 +1483,7 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 			sqlite_deparse_var((Var *) node, context);
 			break;
 		case T_Const:
-			sqlite_deparse_const((Const *) node, context, 0);
+			sqlite_deparse_const((Const *) node, context, 0, retrieved_attrs);
 			break;
 		case T_Param:
 			sqlite_deparse_param((Param *) node, context);
@@ -1492,7 +1492,7 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 			sqlite_deparse_func_expr((FuncExpr *) node, context);
 			break;
 		case T_OpExpr:
-			sqlite_deparse_op_expr((OpExpr *) node, context);
+			sqlite_deparse_op_expr((OpExpr *) node, context, retrieved_attrs);
 			break;
 		case T_ScalarArrayOpExpr:
 			sqlite_deparse_scalar_array_op_expr((ScalarArrayOpExpr *) node, context);
@@ -1661,20 +1661,18 @@ sqlite_deparse_var(Var *node, deparse_expr_cxt *context)
 }
 
 static char *
-pg_timestamp_convert_to_sqlite(Const *node, char *pg_value)
+pg_timestamp_convert_to_sqlite(Const *node, char *pg_value, List **retrieved_attrs)
 {
-	ForeignScanState *fsState = (ForeignScanState *) node;
-	SqliteFdwExecState *festate = (SqliteFdwExecState *) fsState->fdw_state;
-
 	ListCell   *lc = NULL;
 	int			attid = 0;
-	sqlite3_stmt * stmt = festate->stmt;
-	List *retrieved_attrs = festate->retrieved_attrs;
 	char *returnValue = NULL;
+
+	if (retrieved_attrs == null)
+		return pg_value;
 
 	foreach(lc, retrieved_attrs)
 	{
-		int sqlitetype = sqlite3_column_type(stmt, attnum);
+		int sqlitetype = sqlite3_column_type(stmt, attid);
 		if (sqlitetype == SQLITE_INTEGER || sqlitetype == SQLITE_FLOAT)
 		{
 			/* Convert to numeric value */
@@ -1699,7 +1697,7 @@ pg_timestamp_convert_to_sqlite(Const *node, char *pg_value)
  * to be the right type by default.
  */
 static void
-sqlite_deparse_const(Const *node, deparse_expr_cxt *context, int showtype)
+sqlite_deparse_const(Const *node, deparse_expr_cxt *context, int showtype, List **retrieved_attrs)
 {
 	StringInfo	buf = context->buf;
 	Oid			typoutput;
@@ -1769,7 +1767,7 @@ sqlite_deparse_const(Const *node, deparse_expr_cxt *context, int showtype)
 			break;
 		case TIMESTAMPOID:
 			extval = OidOutputFunctionCall(typoutput, node->constvalue);
-			char *valor = pg_timestamp_convert_to_sqlite(node, extval);
+			char *valor = pg_timestamp_convert_to_sqlite(node, extval, retrieved_attrs);
 			sqlite_deparse_string_literal(buf, extval);
 		default:
 			extval = OidOutputFunctionCall(typoutput, node->constvalue);
@@ -1863,7 +1861,7 @@ sqlite_deparse_func_expr(FuncExpr *node, deparse_expr_cxt *context)
 	{
 		if (!first)
 			appendStringInfoString(buf, ", ");
-		deparseExpr((Expr *) lfirst(arg), context);
+		deparseExpr((Expr *) lfirst(arg), context, NULL);
 		first = false;
 	}
 	appendStringInfoChar(buf, ')');
@@ -1875,7 +1873,7 @@ sqlite_deparse_func_expr(FuncExpr *node, deparse_expr_cxt *context)
  * priority of operations, we always parenthesize the arguments.
  */
 static void
-sqlite_deparse_op_expr(OpExpr *node, deparse_expr_cxt *context)
+sqlite_deparse_op_expr(OpExpr *node, deparse_expr_cxt *context, List** retrieved_atts)
 {
 	StringInfo	buf = context->buf;
 	HeapTuple	tuple;
@@ -1902,7 +1900,7 @@ sqlite_deparse_op_expr(OpExpr *node, deparse_expr_cxt *context)
 	if (oprkind == 'r' || oprkind == 'b')
 	{
 		arg = list_head(node->args);
-		deparseExpr(lfirst(arg), context);
+		deparseExpr(lfirst(arg), context, NULL);
 		appendStringInfoChar(buf, ' ');
 	}
 
@@ -1914,7 +1912,7 @@ sqlite_deparse_op_expr(OpExpr *node, deparse_expr_cxt *context)
 	{
 		arg = list_tail(node->args);
 		appendStringInfoChar(buf, ' ');
-		deparseExpr(lfirst(arg), context);
+		deparseExpr(lfirst(arg), context, retrieved_atts);
 	}
 
 	appendStringInfoChar(buf, ')');
@@ -1996,7 +1994,7 @@ sqlite_deparse_scalar_array_op_expr(ScalarArrayOpExpr *node, deparse_expr_cxt *c
 
 	/* Deparse left operand. */
 	arg1 = linitial(node->args);
-	deparseExpr(arg1, context);
+	deparseExpr(arg1, context, NULL);
 	appendStringInfoChar(buf, ' ');
 
 	opname = NameStr(form->oprname);
@@ -2039,7 +2037,7 @@ sqlite_deparse_scalar_array_op_expr(ScalarArrayOpExpr *node, deparse_expr_cxt *c
 			}
 			break;
 		default:
-			deparseExpr(arg2, context);
+			deparseExpr(arg2, context, NULL);
 			break;
 	}
 	appendStringInfoChar(buf, ')');
@@ -2052,7 +2050,7 @@ sqlite_deparse_scalar_array_op_expr(ScalarArrayOpExpr *node, deparse_expr_cxt *c
 static void
 sqlite_deparse_relabel_type(RelabelType *node, deparse_expr_cxt *context)
 {
-	deparseExpr(node->arg, context);
+	deparseExpr(node->arg, context, NULL);
 }
 
 /*
@@ -2079,7 +2077,7 @@ sqlite_deparse_bool_expr(BoolExpr *node, deparse_expr_cxt *context)
 			break;
 		case NOT_EXPR:
 			appendStringInfoString(buf, "(NOT ");
-			deparseExpr(linitial(node->args), context);
+			deparseExpr(linitial(node->args), context, NULL);
 			appendStringInfoChar(buf, ')');
 			return;
 	}
@@ -2090,7 +2088,7 @@ sqlite_deparse_bool_expr(BoolExpr *node, deparse_expr_cxt *context)
 	{
 		if (!first)
 			appendStringInfo(buf, " %s ", op);
-		deparseExpr((Expr *) lfirst(lc), context);
+		deparseExpr((Expr *) lfirst(lc), context, NULL);
 		first = false;
 	}
 	appendStringInfoChar(buf, ')');
@@ -2105,7 +2103,7 @@ sqlite_deparse_null_test(NullTest *node, deparse_expr_cxt *context)
 	StringInfo	buf = context->buf;
 
 	appendStringInfoChar(buf, '(');
-	deparseExpr(node->arg, context);
+	deparseExpr(node->arg, context, NULL);
 	if (node->nulltesttype == IS_NULL)
 		appendStringInfoString(buf, " IS NULL)");
 	else
@@ -2127,7 +2125,7 @@ sqlite_deparse_array_expr(ArrayExpr *node, deparse_expr_cxt *context)
 	{
 		if (!first)
 			appendStringInfoString(buf, ", ");
-		deparseExpr(lfirst(lc), context);
+		deparseExpr(lfirst(lc), context, NULL);
 		first = false;
 	}
 	appendStringInfoChar(buf, ']');
@@ -2146,7 +2144,7 @@ sqlite_deparse_case_expr(CaseExpr *node, deparse_expr_cxt *context)
 
 	/* If CASE arg WHEN then appen arg before continuing */
 	if (node->arg != NULL)
-		deparseExpr(node->arg, context);
+		deparseExpr(node->arg, context, NULL);
 
 	/* Add individual cases */
 	foreach(lc, node->args)
@@ -2156,20 +2154,20 @@ sqlite_deparse_case_expr(CaseExpr *node, deparse_expr_cxt *context)
 		/* WHEN */
 		appendStringInfoString(buf, " WHEN ");
 		if (node->arg == NULL)	/* CASE WHEN */
-			deparseExpr(whenclause->expr, context);
+			deparseExpr(whenclause->expr, context, NULL);
 		else					/* CASE arg WHEN */
-			deparseExpr(lsecond(((OpExpr *) whenclause->expr)->args), context);
+			deparseExpr(lsecond(((OpExpr *) whenclause->expr)->args), context, NULL);
 
 		/* THEN */
 		appendStringInfoString(buf, " THEN ");
-		deparseExpr(whenclause->result, context);
+		deparseExpr(whenclause->result, context, NULL);
 	}
 
 	/* add ELSE if needed */
 	if (node->defresult != NULL)
 	{
 		appendStringInfoString(buf, " ELSE ");
-		deparseExpr(node->defresult, context);
+		deparseExpr(node->defresult, context, NULL);
 	}
 
 	/* append END */
@@ -2185,9 +2183,9 @@ sqlite_deparse_null_if_expr(NullIfExpr *node, deparse_expr_cxt *context)
 	StringInfo	buf = context->buf;
 
 	appendStringInfoString(buf, "NULLIF(");
-	deparseExpr(lfirst(list_head(node->args)), context);
+	deparseExpr(lfirst(list_head(node->args)), context, NULL);
 	appendStringInfoString(buf, ", ");
-	deparseExpr(lfirst(list_tail(node->args)), context);
+	deparseExpr(lfirst(list_tail(node->args)), context, NULL);
 	appendStringInfoChar(buf, ')');
 }
 
@@ -2208,7 +2206,7 @@ sqlite_deparse_coalesce_expr(CoalesceExpr *node, deparse_expr_cxt *context)
 			appendStringInfoString(buf, ", ");
 		first = false;
 
-		deparseExpr(lfirst(lc), context);
+		deparseExpr(lfirst(lc), context, NULL);
 	}
 	appendStringInfoChar(buf, ')');
 }
@@ -2300,7 +2298,7 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 				appendStringInfoString(buf, ", ");
 			first = false;
 
-			deparseExpr((Expr *) lfirst(arg), context);
+			deparseExpr((Expr *) lfirst(arg), context, NULL);
 		}
 
 		appendStringInfoString(buf, ") WITHIN GROUP (ORDER BY ");
@@ -2333,7 +2331,7 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 				if (use_variadic && lnext(arg) == NULL)
 					appendStringInfoString(buf, "VARIADIC ");
 
-				deparseExpr((Expr *) n, context);
+				deparseExpr((Expr *) n, context, NULL);
 			}
 		}
 
@@ -2349,7 +2347,7 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 	if (node->aggfilter != NULL)
 	{
 		appendStringInfoString(buf, ") FILTER (WHERE ");
-		deparseExpr((Expr *) node->aggfilter, context);
+		deparseExpr((Expr *) node->aggfilter, context, NULL);
 	}
 
 	appendStringInfoChar(buf, ')');
@@ -2486,7 +2484,7 @@ appendOrderByClause(List *pathkeys, bool has_final_sort, deparse_expr_cxt *conte
 		Assert(em_expr != NULL);
 
 		appendStringInfoString(buf, delim);
-		deparseExpr(em_expr, context);
+		deparseExpr(em_expr, context, NULL);
 		if (pathkey->pk_strategy == BTLessStrategyNumber)
 			appendStringInfoString(buf, " ASC");
 		else
@@ -2535,7 +2533,7 @@ appendLimitClause(deparse_expr_cxt *context)
 	if (root->parse->limitCount)
 	{
 		appendStringInfoString(buf, " LIMIT ");
-		deparseExpr((Expr *) root->parse->limitCount, context);
+		deparseExpr((Expr *) root->parse->limitCount, context, NULL);
 	}
 	else
 	{
@@ -2547,7 +2545,7 @@ appendLimitClause(deparse_expr_cxt *context)
 	if (root->parse->limitOffset)
 	{
 		appendStringInfoString(buf, " OFFSET ");
-		deparseExpr((Expr *) root->parse->limitOffset, context);
+		deparseExpr((Expr *) root->parse->limitOffset, context, NULL);
 	}
 
 	sqlite_reset_transmission_modes(nestlevel);
@@ -2615,15 +2613,15 @@ deparseSortGroupClause(Index ref, List *tlist, bool force_colno, deparse_expr_cx
 		 * BY 2", which will be misconstrued as a column position rather than
 		 * a constant.
 		 */
-		sqlite_deparse_const((Const *) expr, context, 1);
+		sqlite_deparse_const((Const *) expr, context, 1, NULL);
 	}
 	else if (!expr || IsA(expr, Var))
-		deparseExpr(expr, context);
+		deparseExpr(expr, context, NULL);
 	else
 	{
 		/* Always parenthesize the expression. */
 		appendStringInfoString(buf, "(");
-		deparseExpr(expr, context);
+		deparseExpr(expr, context, NULL);
 		appendStringInfoString(buf, ")");
 	}
 
