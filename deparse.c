@@ -122,10 +122,10 @@ static void sqlite_deparse_coalesce_expr(CoalesceExpr *node, deparse_expr_cxt *c
 static void deparseFromExprForRel(StringInfo buf, PlannerInfo *root,
 								  RelOptInfo *foreignrel,
 								  bool use_alias, List **params_list);
-static void deparseFromExpr(List *quals, deparse_expr_cxt *context);
+static void deparseFromExpr(List *quals, deparse_expr_cxt *context, List **retrieved_attrs);
 static void deparseAggref(Aggref *node, deparse_expr_cxt *context);
 static void appendLimitClause(deparse_expr_cxt *context);
-static void appendConditions(List *exprs, deparse_expr_cxt *context);
+static void appendConditions(List *exprs, deparse_expr_cxt *context, List **retrieved_attrs);
 static void appendGroupByClause(List *tlist, deparse_expr_cxt *context);
 static void appendAggOrderBy(List *orderList, List *targetList,
 							 deparse_expr_cxt *context);
@@ -987,7 +987,7 @@ sqliteDeparseSelectStmtForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel
 		if (remote_conds)
 		{
 			appendStringInfo(buf, " HAVING ");
-			appendConditions(remote_conds, &context);
+			appendConditions(remote_conds, &context, NULL);
 		}
 	}
 
@@ -1667,7 +1667,7 @@ pg_timestamp_convert_to_sqlite(Const *node, char *pg_value, List **retrieved_att
 	int			attid = 0;
 	char *returnValue = NULL;
 
-	if (retrieved_attrs == null)
+	if (retrieved_attrs == NULL)
 		return pg_value;
 
 	foreach(lc, retrieved_attrs)
