@@ -98,7 +98,7 @@ static void sqlite_deparse_var(Var *node, deparse_expr_cxt *context);
 static void sqlite_deparse_const(Const *node, deparse_expr_cxt *context, int showtype, List **retrieved_attrs);
 static void sqlite_deparse_param(Param *node, deparse_expr_cxt *context);
 static void sqlite_deparse_func_expr(FuncExpr *node, deparse_expr_cxt *context);
-static void sqlite_deparse_op_expr(OpExpr *node, deparse_expr_cxt *context);
+static void sqlite_deparse_op_expr(OpExpr *node, deparse_expr_cxt *context, List **retrieved_attrs);
 static void sqlite_deparse_operator_name(StringInfo buf, Form_pg_operator opform);
 
 static void sqlite_deparse_scalar_array_op_expr(ScalarArrayOpExpr *node,
@@ -1666,9 +1666,19 @@ pg_timestamp_convert_to_sqlite(Const *node, char *pg_value, List **retrieved_att
 	ListCell   *lc = NULL;
 	int			attid = 0;
 	char *returnValue = NULL;
+	int			rc;
+	sqlite3    *db;
+	sqlite3_stmt *stmt;
+	sqlite3    *conn;
 
 	if (retrieved_attrs == NULL)
 		return pg_value;
+	
+	foreignTableId = RelationGetRelid(rel);
+
+	table = GetForeignTable(foreignTableId);
+	server = GetForeignServer(table->serverid);
+	conn = sqlite_get_connection(server);
 
 	foreach(lc, retrieved_attrs)
 	{
@@ -1767,7 +1777,7 @@ sqlite_deparse_const(Const *node, deparse_expr_cxt *context, int showtype, List 
 			break;
 		case TIMESTAMPOID:
 			extval = OidOutputFunctionCall(typoutput, node->constvalue);
-			char *valor = pg_timestamp_convert_to_sqlite(node, extval, retrieved_attrs);
+			/* char *valor = pg_timestamp_convert_to_sqlite(node, extval, retrieved_attrs);*/
 			sqlite_deparse_string_literal(buf, extval);
 		default:
 			extval = OidOutputFunctionCall(typoutput, node->constvalue);
@@ -1873,7 +1883,7 @@ sqlite_deparse_func_expr(FuncExpr *node, deparse_expr_cxt *context)
  * priority of operations, we always parenthesize the arguments.
  */
 static void
-sqlite_deparse_op_expr(OpExpr *node, deparse_expr_cxt *context, List** retrieved_atts)
+sqlite_deparse_op_expr(OpExpr *node, deparse_expr_cxt *context, List** retrieved_attrs)
 {
 	StringInfo	buf = context->buf;
 	HeapTuple	tuple;
@@ -1900,7 +1910,7 @@ sqlite_deparse_op_expr(OpExpr *node, deparse_expr_cxt *context, List** retrieved
 	if (oprkind == 'r' || oprkind == 'b')
 	{
 		arg = list_head(node->args);
-		deparseExpr(lfirst(arg), context, NULL);
+		deparseExpr(lfirst(arg), context, retrieved_attrs);
 		appendStringInfoChar(buf, ' ');
 	}
 
@@ -1912,7 +1922,7 @@ sqlite_deparse_op_expr(OpExpr *node, deparse_expr_cxt *context, List** retrieved
 	{
 		arg = list_tail(node->args);
 		appendStringInfoChar(buf, ' ');
-		deparseExpr(lfirst(arg), context, retrieved_atts);
+		deparseExpr(lfirst(arg), context, retrieved_attrs);
 	}
 
 	appendStringInfoChar(buf, ')');
